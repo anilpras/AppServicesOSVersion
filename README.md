@@ -26,10 +26,9 @@ Use this page first when you only need a quick environment check. Use the script
 
 ## Run the script
 
-1. In the Azure portal, open the target App Service app. If investigating a deployment slot, open that slot.
-2. Select **Development Tools > Advanced Tools > Go** to open Kudu.
-3. In Kudu, select **Debug console > PowerShell**, where available.
-4. Paste and run the complete script below. Copy the output and record the app, slot, and Azure region in your support notes.
+1. **Open Kudu Console** at `https://<SiteName>.scm.azurewebsites.net` and sign in with an authorized account. Use the actual SCM hostname for the target app or deployment slot.
+2. In Kudu, select **Debug console > PowerShell**, where available.
+3. Paste and run the complete script below. Copy the output and record the app, slot, and Azure region in your support notes.
 
 Run the script in the target environment, not on your workstation or in Azure Cloud Shell. Otherwise, it reports information from that other environment. For custom Windows containers, do not assume that the Kudu console is inside your application container; use an authorized PowerShell session inside the target container when container information is required.
 
@@ -90,6 +89,35 @@ foreach ($key in @($details.Keys)) {
 ```
 
 The code uses a single backslash in the registry path and literal underscores in the environment-variable names. Copy it directly from the code block without adding Markdown escape characters.
+
+### Sample output
+
+The following example is adapted from a sample run, with the app name, instance ID, and computer name replaced by placeholders. Your timestamp, build/revision, paths, and other values will vary. This is illustrative output, not a required OS version or a statement of the platform's current patch level.
+
+```text
+CollectedAtUTC      : 2026-11-02T06:29:00.1846514Z
+AppName             : <app-name>
+InstanceId          : <instance-id>
+ComputerName        : <computer-name>
+OSProductName       : Windows Server 2022 Datacenter Azure Edition
+ProcessOSVersion    : Microsoft Windows NT 10.0.20348.0
+DisplayVersion      : 21H2
+InstallationType    : Server
+BaseBuild           : 20348
+UpdateBuildRevision : 5773
+BuildAndRevision    : 20348.5773
+BuildLab            : 20348.fe_release.210507-1500
+BuildLabEx          : 20348.1.amd64fre.fe_release.210507-1500
+Is64BitOS           : True
+Is64BitProcess      : False
+RegistrySource      : HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion
+WindowsDirectory    : Not exposed in this environment
+SystemRoot          : C:\Windows
+SystemDirectory     : C:\Windows\system32
+AppServiceHome      : C:\home
+```
+
+In this example, the registry build and revision combine to `20348.5773`, while the process-reported OS version shows `10.0.20348.0`. Retain both values rather than treating them as interchangeable. `Is64BitProcess : False` alongside `Is64BitOS : True` indicates a 32-bit PowerShell process on a 64-bit OS; it does not, by itself, establish the application worker's bitness.
 
 ## Understand the output
 
