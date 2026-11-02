@@ -1,0 +1,123 @@
+# Collect Windows OS build details in Azure App Service
+
+This article explains how to collect Windows operating system information exposed to a Windows-based Azure App Service environment using a read-only PowerShell script. The output helps correlate a diagnostic session with an app instance, a UTC timestamp, and the Windows build and update revision visible to that session.
+
+> **Scope:** This is a point-in-time diagnostic snapshot of the environment where the script runs. It is not a host inventory, an installed-update report, or proof that a particular security fix is present or absent. For Windows containers, information collected inside the container describes that environment and must not be treated as the underlying host's OS version.
+
+## Before you begin
+
+- Use a Windows-based App Service app and a PowerShell console in the environment you want to inspect. This script does not apply to Linux apps.
+- You need authorized access to the app's Kudu (Advanced Tools) site. Microsoft documents the required permissions in the [Kudu service overview](https://learn.microsoft.com/en-us/azure/app-service/resources-kudu).
+- The registry path must be readable in that environment. If access is blocked or the key is unavailable, the script intentionally stops rather than returning an apparently successful report.
+
+The script does not change the registry, app settings, or files; restart the app; or send results over the network. Its output includes app and instance identifiers, computer names, and paths. Review and redact those values before sharing outside an approved support channel.
+
+## Run the script
+
+1. In the Azure portal, open the target App Service app. If investigating a deployment slot, open that slot.
+2. Select **Development Tools > Advanced Tools > Go** to open Kudu.
+3. In Kudu, select **Debug console > PowerShell**, where available.
+4. Paste and run the complete script below. Copy the output and record the app, slot, and Azure region in your support notes.
+
+Run the script in the target environment, not on your workstation or in Azure Cloud Shell. Otherwise, it reports information from that other environment. For custom Windows containers, do not assume that the Kudu console is inside your application container; use an authorized PowerShell session inside the target container when container information is required.
+
+### PowerShell script
+
+```powershell
+$registryPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+
+# Stop explicitly if this environment does not permit registry access.
+$os = Get-ItemProperty -Path $registryPath -ErrorAction Stop
+
+$build = $os.CurrentBuildNumber
+$revision = $os.UBR
+
+$buildAndRevision = if (
+    -not [string]::IsNullOrWhiteSpace($build) -and
+    $null -ne $revision
+) {
+    '{0}.{1}' -f $build, $revision
+} else {
+    'Unavailable: build number or update revision is not exposed'
+}
+
+$details = [ordered]@{
+    CollectedAtUTC      = [DateTime]::UtcNow.ToString('o')
+    AppName             = $env:WEBSITE_SITE_NAME
+    InstanceId          = $env:WEBSITE_INSTANCE_ID
+    ComputerName        = $env:COMPUTERNAME
+
+    OSProductName       = $os.ProductName
+    ProcessOSVersion    = [Environment]::OSVersion.VersionString
+    DisplayVersion     = $os.DisplayVersion
+    InstallationType   = $os.InstallationType
+    BaseBuild          = $build
+    UpdateBuildRevision = $revision
+    BuildAndRevision   = $buildAndRevision
+    BuildLab           = $os.BuildLab
+    BuildLabEx         = $os.BuildLabEx
+    Is64BitOS          = [Environment]::Is64BitOperatingSystem
+    Is64BitProcess     = [Environment]::Is64BitProcess
+
+    RegistrySource     = $registryPath
+    WindowsDirectory   = $os.WindowsDirectory
+    SystemRoot         = $env:SystemRoot
+    SystemDirectory    = [Environment]::SystemDirectory
+    AppServiceHome     = $env:HOME
+}
+
+# Make unavailable fields explicit instead of displaying empty values.
+foreach ($key in @($details.Keys)) {
+    if ($null -eq $details[$key] -or
+        [string]::IsNullOrWhiteSpace([string]$details[$key])) {
+        $details[$key] = 'Not exposed in this environment'
+    }
+}
+
+[PSCustomObject]$details | Format-List
+```
+
+The code uses a single backslash in the registry path and literal underscores in the environment-variable names. Copy it directly from the code block without adding Markdown escape characters.
+
+## Understand the output
+
+| Field | How to use it |
+| --- | --- |
+| `CollectedAtUTC` | UTC collection timestamp in round-trip ISO 8601 format. Use it to correlate with logs and incident times. |
+| `AppName`, `InstanceId`, `ComputerName` | Context exposed to the current session. Use these values to identify the environment being inspected; missing values are explicitly labeled. |
+| `BaseBuild` | Windows build number read from `CurrentBuildNumber` in the registry. |
+| `UpdateBuildRevision` | Update build revision read from `UBR`. A value of `0` is valid and is not treated as missing. |
+| `BuildAndRevision` | Combines the two registry values as `<build>.<revision>`. If either is missing, the script says the combined value is unavailable. |
+| `OSProductName`, `DisplayVersion`, `InstallationType` | Descriptive registry metadata. Availability varies; do not identify the OS solely from a product name or display-version string. |
+| `ProcessOSVersion` | The OS version reported to the current PowerShell/.NET process. Process-reported and registry-reported information can differ; retain both for troubleshooting. |
+| `BuildLab`, `BuildLabEx` | Additional build metadata, when exposed. These values are not an installed-update history. |
+| `Is64BitOS`, `Is64BitProcess` | OS and process architecture indicators. A 32-bit process can run on a 64-bit OS. |
+| `RegistrySource`, directory fields | Identifies the registry source and paths visible to the session. Paths alone do not establish host identity or patch status. |
+
+`Not exposed in this environment` means that a field was missing, null, empty, or whitespace. It does not by itself indicate an application failure. For example, `DisplayVersion` may not be populated even when build information is available.
+
+## Important interpretation limits
+
+- **One run covers one execution context.** Do not assume a Kudu result represents every scaled-out application instance. Record the instance information and repeat collection in the relevant instance contexts when investigating instance-specific behavior.
+- **Values can change over time.** Repeat collection when needed and retain the timestamp and instance identifiers with each result.
+- **The script does not enumerate installed KBs.** A build/revision pair can support further investigation, but confirming a specific fix requires the correct Windows product and servicing context, applicable Microsoft release documentation, and, where needed, Azure support.
+- **App Service is a managed platform.** Use this script to observe exposed information, not to change platform registry values or install host OS updates. See [Operating system functionality in Azure App Service](https://learn.microsoft.com/en-us/azure/app-service/operating-system-functionality) for access boundaries.
+
+## Troubleshooting
+
+| Symptom | Recommended action |
+| --- | --- |
+| Kudu cannot be opened | Verify that you selected the correct app or slot, have the documented Kudu permissions, and can reach the SCM endpoint under the app's networking rules. Do not weaken access controls just to collect this output. |
+| `HKLM:` is unavailable or the registry read fails | Confirm that you are using PowerShell in a Windows environment. Preserve the error text. If registry access is restricted, use an approved diagnostic route or contact Azure support; do not bypass the restriction. |
+| App or instance identifiers are not exposed | Check where the script was executed. A local shell, Cloud Shell, or a different diagnostic context may not expose the target app's variables. |
+| `BuildAndRevision` is unavailable | One or both required registry values were not exposed. Keep the remaining output, but do not infer a revision or substitute a process-version string as an equivalent. |
+| Results differ across sessions | Compare collection times, app/slot, instance identifiers, process architecture, and whether collection occurred in Kudu or inside a container before drawing conclusions. |
+
+For a support case, provide the reviewed script output, the app and slot, Azure region, incident time in UTC, collection context, and any exact error text through your approved support channel. Do not include credentials, publishing profiles, connection strings, or unrelated environment-variable dumps.
+
+## References
+
+- [Kudu service overview and access permissions](https://learn.microsoft.com/en-us/azure/app-service/resources-kudu)
+- [Operating system functionality and access boundaries in Azure App Service](https://learn.microsoft.com/en-us/azure/app-service/operating-system-functionality)
+
+This article is a diagnostic aid, not an official statement of a particular App Service instance's OS servicing or compliance status.
