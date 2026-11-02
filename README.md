@@ -12,6 +12,18 @@ This article explains how to collect Windows operating system information expose
 
 The script does not change the registry, app settings, or files; restart the app; or send results over the network. Its output includes app and instance identifiers, computer names, and paths. Review and redact those values before sharing outside an approved support channel.
 
+## Start with the Kudu Environment page
+
+> **Note:** Generally, you can find most of the information needed for routine environment troubleshooting on the Kudu Environment page: `https://<SiteName>.scm.azurewebsites.net/Env.cshtml`.
+
+Replace `<SiteName>` with your app's name and sign in with an authorized account. You can also open **Advanced Tools > Go** from the app or slot in the Azure portal, then select **Environment** in Kudu. For deployment slots, App Service Environments, or other hostname variations, use the actual SCM hostname opened by the portal and append `/Env.cshtml`.
+
+The page provides system information such as the process-reported OS version, machine name, instance ID, system directory, and OS/process architecture, together with app settings, connection strings, environment variables, and other diagnostic context.
+
+Use this page first when you only need a quick environment check. Use the script below when you need the registry-reported Windows build and update revision (`UBR`), or a consistent, timestamped report. The Environment page does not necessarily expose every script field or establish the underlying host's patch status; its OS version is process-reported.
+
+**Protect sensitive information:** This page can expose secrets in app settings, connection strings, environment variables, and request details. Do not share a full page export or unredacted screenshot, and do not assume every secret is masked. Share only the reviewed fields required for the support case.
+
 ## Run the script
 
 1. In the Azure portal, open the target App Service app. If investigating a deployment slot, open that slot.
@@ -115,9 +127,47 @@ The code uses a single backslash in the registry path and literal underscores in
 
 For a support case, provide the reviewed script output, the app and slot, Azure region, incident time in UTC, collection context, and any exact error text through your approved support channel. Do not include credentials, publishing profiles, connection strings, or unrelated environment-variable dumps.
 
+## Kudu API knowledge base
+
+For the full documented Kudu REST API catalog, including HTTP methods, request formats, and examples, use the [Kudu REST API reference](https://github.com/projectkudu/kudu/wiki/REST-API). The [Kudu wiki](https://github.com/projectkudu/kudu/wiki) provides the broader knowledge base for console access, deployments, diagnostics, and troubleshooting.
+
+API URLs use the same SCM hostname as the Kudu portal:
+
+```text
+Kudu portal:       https://<SiteName>.scm.azurewebsites.net/
+Environment page: https://<SiteName>.scm.azurewebsites.net/Env.cshtml
+Example API:       https://<SiteName>.scm.azurewebsites.net/api/environment
+```
+
+Use the target app or slot's actual SCM hostname. `/Env.cshtml` is a browser page, not a REST API. The reference documentation is the starting point for discovering the API surface; do not assume that opening `/api` will list every available API.
+
+### Read-only API quick reference
+
+These are selected documented endpoints, not an exhaustive inventory:
+
+| HTTP method and path | Purpose | Reference |
+| --- | --- | --- |
+| `GET /api/environment` | Returns Kudu version information; it is not equivalent to the full Environment page or the registry report above. | [Environment API](https://github.com/projectkudu/kudu/wiki/REST-API#environment) |
+| `GET /api/deployments` | Lists deployment history recorded by Kudu. | [Deployment API](https://github.com/projectkudu/kudu/wiki/REST-API#deployment) |
+| `GET /api/deployments/{id}/log` | Lists log entries for a specific deployment. | [Deployment API](https://github.com/projectkudu/kudu/wiki/REST-API#deployment) |
+| `GET /api/vfs/{path}/` | Lists a directory; keep the trailing slash. Without it, `GET /api/vfs/{path}` reads a file. | [Virtual file system API](https://github.com/projectkudu/kudu/wiki/REST-API#vfs) |
+| `GET /api/dump` | Downloads diagnostic logs as a ZIP file. Review its contents for sensitive data before sharing. | [Diagnostics API](https://github.com/projectkudu/kudu/wiki/REST-API#diagnostics) |
+| `GET /api/siteextensions` | Lists installed site extensions, where supported. | [Site extensions API](https://github.com/projectkudu/kudu/wiki/REST-API#siteextensions) |
+
+### Access and safety
+
+Open the Kudu portal through the Azure portal for interactive, authorized browser access. For scripted API access, follow the [Kudu access and authentication guidance](https://github.com/projectkudu/kudu/wiki/Accessing-the-kudu-service) and your organization's approved authentication method. Browser sign-in does not automatically authenticate a separate PowerShell or curl session. Some older examples use publishing credentials with Basic authentication; those examples will not work when SCM Basic authentication is disabled. Do not enable it or weaken network restrictions solely to follow an example.
+
+API availability and behavior vary by platform, hosting configuration, and deployed Kudu version. Some wiki examples describe older versions. A missing endpoint is not a reason to bypass access controls.
+
+The full API reference also documents operations that execute commands, deploy code, change settings, or delete files and repositories. Those operations are not read-only diagnostics and are not required for this article. Even read-only responses can contain application data or secrets; do not paste credentials into shared commands or publish unredacted API responses.
+
 ## References
 
 - [Kudu service overview and access permissions](https://learn.microsoft.com/en-us/azure/app-service/resources-kudu)
 - [Operating system functionality and access boundaries in Azure App Service](https://learn.microsoft.com/en-us/azure/app-service/operating-system-functionality)
+- [Kudu REST API reference](https://github.com/projectkudu/kudu/wiki/REST-API)
+- [Kudu access and authentication guidance](https://github.com/projectkudu/kudu/wiki/Accessing-the-kudu-service)
+- [Kudu knowledge base](https://github.com/projectkudu/kudu/wiki)
 
 This article is a diagnostic aid, not an official statement of a particular App Service instance's OS servicing or compliance status.
